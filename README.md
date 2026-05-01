@@ -2,6 +2,8 @@
 
 A powerful Chrome extension that monitors your Claude.ai usage in real-time with an inline chat bar display and detailed popup dashboard. Never hit your usage limit unexpectedly—track your 5-hour session, weekly quota, and Opus limits at a glance. Optionally enable auto-refresh to automatically reset your 5-hour window when it expires.
 
+![Claude Usage Tracker Screenshot](./screenshot.png)
+
 ## Features
 
 - **Usage Bars** — View your 5-hour session, weekly (all models), and weekly Opus usage at a glance
@@ -81,18 +83,6 @@ Enable "Auto-refresh 5-hour window" in the popup to:
 - ✅ No credential theft (uses your existing session)
 - ✅ All data stays in your browser
 - ✅ Open source — you can audit every line of code
-
-## Changelog
-
-### v1.0.0
-- Initial release
-- Usage bars for 5-hour session, weekly (all models), and weekly Opus
-- Inline usage bar in Claude.ai chat interface
-- Popup dashboard with detailed usage and timestamps
-- Auto-refresh feature for 5-hour window
-- Account separation: Regular and incognito windows track independently
-- Last fetched timestamp display
-- Context token counter
 
 ## Development
 
