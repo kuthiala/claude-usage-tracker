@@ -1,0 +1,41 @@
+name: Create Release Zip
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Create zip file
+        run: |
+          zip -r claude-usage-monitor.zip . \
+            -x "*.git*" \
+            ".github/*" \
+            "*.md" \
+            "LICENSE" \
+            ".gitignore"
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./claude-usage-monitor.zip
+          asset_name: claude-usage-monitor.zip
+          asset_content_type: application/zip

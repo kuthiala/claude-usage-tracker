@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<div class="container">
+  <header>
+    <span class="logo" aria-hidden="true">✱</span>
+    <a href="https://claude.ai/settings/usage" class="header-link">
+      <h1>Usage</h1>
+    </a>
+  </header>
+
+  <div id="content">
+    <div class="loading">Loading…</div>
+  </div>
+
+  <footer>
+    <button id="refresh" class="refresh-btn">Refetch Usage</button>
+    <div class="keep-alive-footer">
+      <span class="ka-footer-label">Auto-refresh</span>
+      <label class="switch" title="When on, automatically refreshes your 5-hour session window after it expires.">
+        <input type="checkbox" id="ka-toggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </footer>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>
