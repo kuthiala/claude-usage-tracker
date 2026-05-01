@@ -59,18 +59,18 @@ The popup is driven by `popup.js` and `background.js`. It does not share fetch r
 The auto-refresh toggle is **not** about refreshing the usage display. It solves a different problem: when your 5-hour usage window expires, you normally have to wait for it to reset before sending more messages. Auto-refresh resets it automatically.
 
 **What it does:**
-1. A background alarm fires every **5 minutes**
+1. A background alarm fires every **2 minutes**
 2. It reads the stored `resets_at` timestamp from the last known usage data
 3. If the window has not expired — does nothing
 4. If the window has expired — sends a short throwaway prompt (`"Ans y/n, k?"` to claude-haiku-4-5) via the API, which consumes a tiny amount of quota and resets the 5-hour window to start fresh
 5. If the window is still expired after that prompt — retries on the next alarm tick
-6. After **30 failed retries** the toggle turns itself off automatically
+6. After **15 failed retries** the toggle turns itself off automatically
 
 **Requirements:**
 - At least one claude.ai tab must be open in the same window context (regular or incognito)
 - If no tab is open, the background worker opens a temporary one, waits for it to load, then closes it after the API call
 
-The alarm period is 5 minutes, so there can be up to a 5-minute delay between window expiry and the first reset attempt.
+The alarm period is 2 minutes, so there can be up to a 2-minute delay between window expiry and the first reset attempt.
 
 ## Data independence
 
@@ -87,7 +87,7 @@ Claude treats regular and incognito browser windows as separate sessions (differ
 | `storage` | Saves usage data and toggle state locally |
 | `scripting` | Injects the inline bar into claude.ai and executes API calls inside tabs |
 | `tabs` | Finds existing claude.ai tabs for auto-refresh and popup fetches |
-| `alarms` | Schedules the 5-minute auto-refresh check |
+| `alarms` | Schedules the 2-minute auto-refresh check |
 | `https://claude.ai/*` | Accesses Claude's usage API endpoints |
 
 ## Privacy

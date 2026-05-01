@@ -5,10 +5,10 @@ const STATUS_KEY_REGULAR = "last_keep_alive_regular";
 const STATUS_KEY_INCOGNITO = "last_keep_alive_incognito";
 const ALARM_NAME_REGULAR = "keep_alive_check_regular";
 const ALARM_NAME_INCOGNITO = "keep_alive_check_incognito";
-const PERIOD_MIN = 5;
+const PERIOD_MIN = 2;
 
-const RETRY_INTERVAL_MS = 5000;
-const MAX_RETRIES = 30;
+const RETRY_INTERVAL_MS = 8000;
+const MAX_RETRIES = 15;
 
 // Separate retry states for each context
 let retryState = {
