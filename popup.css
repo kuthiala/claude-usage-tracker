@@ -152,5 +152,11 @@ footer {
 .ka-footer-label {
   font-size: 11px;
   color: var(--text-muted);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.3;
+  text-align: right;
+}
+.ka-footer-sublabel {
+  font-size: 10px;
+  opacity: 0.75;
 }

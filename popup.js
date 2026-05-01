@@ -89,35 +89,66 @@ async function claudeTabExists(incognito) {
 }
 
 // Render the popup content based on current storage state, without triggering fetches.
+async function checkSession(incognito) {
+  try {
+    const result = await chrome.runtime.sendMessage({ action: "checkSession", incognito });
+    return !!(result && result.loggedIn);
+  } catch {
+    return false;
+  }
+}
+
 async function render(skipAutoFetch = false) {
   const content = document.getElementById("content");
   content.innerHTML = `<div class="loading">Loading…</div>`;
 
   currentIncognito = await getCurrentWindowIncognito();
+
+  // If a Claude tab is already open in this context, do a fast login check
+  // against it before showing anything — this catches the case where the user
+  // has logged out since the last fetch and the popup would otherwise show
+  // stale cached usage data.
+  const hasClaudeTab = await claudeTabExists(currentIncognito);
+  if (hasClaudeTab) {
+    const loggedIn = await checkSession(currentIncognito);
+    if (!loggedIn) {
+      content.innerHTML = errorHtml(
+        "Not signed in",
+        `<span class="detail">Sign in at <a href="https://claude.ai" class="internal-link">claude.ai</a> and reopen the extension.</span>`
+      );
+      return;
+    }
+  }
+
   const statusKey = getStatusKeyForWindow(currentIncognito);
   const stored = await chrome.storage.local.get(statusKey);
   const status = stored[statusKey] || {};
 
-  // On first open, always fetch fresh data if a Claude tab is available
+  // On first open, always fetch fresh data
   if (!skipAutoFetch && !initialFetchDone) {
-    const hasClaudeTab = await claudeTabExists(currentIncognito);
-    if (hasClaudeTab) {
-      initialFetchDone = true;
-      try {
-        const result = await chrome.runtime.sendMessage({
-          action: "fetchUsage",
-          incognito: currentIncognito,
-        });
-        if (result && result.ok) {
-          lastUsageData = result.data;
-          lastFetchedTime = Date.now();
-          content.innerHTML = renderUsage(result.data);
-          updateLastFetched(lastFetchedTime);
-          return;
-        }
-      } catch (e) {
-        // fall through to show stored/error status
+    initialFetchDone = true;
+    try {
+      const result = await chrome.runtime.sendMessage({
+        action: "fetchUsage",
+        incognito: currentIncognito,
+      });
+      if (result && result.ok) {
+        lastUsageData = result.data;
+        lastFetchedTime = Date.now();
+        content.innerHTML = renderUsage(result.data);
+        updateLastFetched(lastFetchedTime);
+        return;
       }
+      // fetchUsage failed — check if it was a login issue
+      if (result?.error === "not_signed_in") {
+        content.innerHTML = errorHtml(
+          "Not signed in",
+          `<span class="detail">Sign in at <a href="https://claude.ai" class="internal-link">claude.ai</a> and reopen the extension.</span>`
+        );
+        return;
+      }
+    } catch (e) {
+      // fall through to show stored/error status
     }
   }
 
@@ -134,7 +165,11 @@ async function render(skipAutoFetch = false) {
     if (detail === "max_retries" || detail === "refresh_failed") {
       msg = "Timed out trying to refresh usage. Auto-refresh has been turned off.";
     } else if (detail === "not_signed_in") {
-      msg = "Not signed in. Sign in at <a href='https://claude.ai' class='internal-link'>claude.ai</a> and try again.";
+      content.innerHTML = errorHtml(
+        "Not signed in",
+        `<span class="detail">Sign in at <a href="https://claude.ai" class="internal-link">claude.ai</a> and reopen the extension.</span>`
+      );
+      return;
     }
     content.innerHTML = errorHtml("Error", `<span class="detail">${msg}</span>`);
     lastFetchedTime = status.lastFetched;
@@ -150,7 +185,7 @@ async function render(skipAutoFetch = false) {
     return;
   }
 
-  // No data yet — show a prompt to fetch
+  // No data yet
   content.innerHTML = errorHtml("No data yet.", `<span class="detail">Click "Refetch Usage" to load your usage.</span>`);
 }
 
@@ -190,17 +225,21 @@ document.getElementById("refresh").addEventListener("click", async (e) => {
 
   try {
     const incognito = await getCurrentWindowIncognito();
+
     const result = await chrome.runtime.sendMessage({
       action: "fetchUsage",
       incognito,
     });
 
     if (!result || !result.ok) {
-      let msg = result?.error || "Couldn't load usage.";
-      if (msg === "not_signed_in") {
-        msg = "Not signed in. Sign in at <a href='https://claude.ai' class='internal-link'>claude.ai</a> and try again.";
+      if (result?.error === "not_signed_in") {
+        content.innerHTML = errorHtml(
+          "Not signed in",
+          `<span class="detail">Sign in at <a href="https://claude.ai" class="internal-link">claude.ai</a> and try again.</span>`
+        );
+      } else {
+        content.innerHTML = errorHtml("Error", `<span class="detail">Couldn't load usage.</span>`);
       }
-      content.innerHTML = errorHtml("Error", `<span class="detail">${msg}</span>`);
     } else {
       lastUsageData = result.data;
       content.innerHTML = renderUsage(result.data);

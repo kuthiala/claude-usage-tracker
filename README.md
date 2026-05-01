@@ -1,147 +1,140 @@
 # Claude Usage Tracker
 
-A powerful Chrome extension that monitors your Claude.ai usage in real-time with an inline chat bar display and detailed popup dashboard. Never hit your usage limit unexpectedly—track your 5-hour session, weekly quota, and Opus limits at a glance. Optionally enable auto-refresh to automatically reset your 5-hour window when it expires.
+A Chrome extension that monitors your Claude.ai usage in real-time. It injects a compact usage bar directly into the Claude.ai chat interface and provides a popup dashboard with more detail.
 
 ![Claude Usage Tracker Screenshot](./screenshot.png)
 
 ## Features
 
-- **Usage Bars** — View your 5-hour session, weekly (all models), and weekly Opus usage at a glance
-- **Inline Chat Bar** — See usage directly in the Claude.ai interface alongside the chat
-- **Popup Dashboard** — Click the extension icon for a detailed view with timestamps
-- **Auto-Refresh** — Optionally enable automatic refresh of your 5-hour window after expiration
-- **Incognito Support** — Separate tracking for regular and incognito window contexts (different accounts)
-- **Last Fetched Timestamp** — Know exactly when your usage was last updated
+- **Inline chat bar** — usage stats visible directly below the chat input on claude.ai
+- **Popup dashboard** — click the extension icon for a fuller view with timestamps
+- **Context token counter** — tracks how much of the 200k context window the current conversation is using
+- **Auto-refresh** — automatically resets your 5-hour usage window when it expires (see below)
+- **Incognito support** — regular and incognito windows are tracked separately (useful if you use two accounts)
+
+## What gets tracked
+
+Three Claude usage limits are displayed:
+
+| Label | What it measures |
+|---|---|
+| **5h** | Your 5-hour rolling session usage |
+| **7d** | Weekly usage across all models |
+| **Ctx** | Current conversation context tokens (out of 200k) |
+
+Each shows a percentage, a mini progress bar, and time until reset. Colors shift from green → amber (50%+) → red (80%+).
 
 ## Installation
 
-### From GitHub (Development Version)
+1. Download or clone this repository
+2. Go to `chrome://extensions/` in Chrome
+3. Enable **Developer mode** (top-right toggle)
+4. Click **Load unpacked** and select the repository folder
+5. Visit https://claude.ai — the usage bar will appear below the chat input
 
-1. **Download the extension:**
-   - Click "Code" → "Download ZIP" on this repository, or
-   - Run: `git clone https://github.com/YOUR_USERNAME/claude-usage-tracker.git`
+## How the inline bar works
 
-2. **Load into Chrome:**
-   - Open Chrome and go to `chrome://extensions/`
-   - Enable **Developer mode** (toggle in top-right)
-   - Click **Load unpacked**
-   - Select the `claude-usage-monitor` folder
-   - The extension is now active!
+The bar is injected by `content.js` directly into the claude.ai page. It makes its own API calls to Claude's usage endpoint — independently of the popup.
 
-3. **Verify installation:**
-   - Click the Claude Usage Monitor icon in your Chrome toolbar
-   - Visit https://claude.ai and open a conversation
-   - You should see the usage bars appear
+**Fetch behavior:**
+- Fetches immediately when the page loads (if the tab is in the foreground)
+- Fetches every **15 seconds** while the tab is active and visible
+- Stops fetching entirely when you switch to another tab or minimize the browser
+- Resumes immediately (with a fresh fetch) when you come back to the tab
+- Force-fetches after every prompt response completes
 
-## Usage
+The "Fetched" timestamp in the bar reflects when the bar itself last successfully fetched — not when the popup last fetched.
 
-### Popup
-Click the extension icon to view:
-- 5-hour session usage with time remaining
-- Weekly usage (all models)
-- Weekly Opus usage
-- Last fetch timestamp
-- Refetch button for manual refresh
-- Auto-refresh toggle
+## How the popup works
 
-### Inline Chat Bar
-In any Claude conversation, you'll see a usage bar below the chat input with:
-- 5-hour session percentage and time remaining
-- Weekly usage (if available)
-- Weekly Opus usage (if available)
-- Context tokens used (on conversation pages)
-- Last fetched time
+The popup is driven by `popup.js` and `background.js`. It does not share fetch results with the inline bar — they fetch independently.
 
-### Auto-Refresh
-Enable "Auto-refresh 5-hour window" in the popup to:
-- Automatically monitor when your 5-hour window expires
-- Send a harmless test prompt ("Ans y/n, k?") to reset it
-- Retry up to 30 times if refresh fails
-- Automatically disable if max retries are exceeded
+- **On open:** if a claude.ai tab exists, automatically fetches fresh usage via the background service worker
+- **Refetch Usage button:** manually triggers a fresh fetch
+- The background worker executes the API calls inside an existing Claude tab (or opens a temporary one if none is open), then saves the result to `chrome.storage.local`
+- The "Last fetched" timestamp in the popup reflects when the popup or background worker last fetched, not the inline bar
 
-**Note:** Auto-refresh requires an open Claude tab in the same window context (regular or incognito).
+## How auto-refresh works
 
-## How It Works
+The auto-refresh toggle is **not** about refreshing the usage display. It solves a different problem: when your 5-hour usage window expires, you normally have to wait for it to reset before sending more messages. Auto-refresh resets it automatically.
 
-1. **Reads Usage Data** — Fetches your usage from Claude's official `/api/organizations/{id}/usage` endpoint
-2. **Displays Locally** — All data is stored in your browser's local storage
-3. **Auto-Refresh Logic** — Checks every 5 minutes if your 5-hour window has expired, then sends a test prompt if needed
-4. **No External Servers** — All traffic stays between your browser and claude.ai
+**What it does:**
+1. A background alarm fires every **5 minutes**
+2. It reads the stored `resets_at` timestamp from the last known usage data
+3. If the window has not expired — does nothing
+4. If the window has expired — sends a short throwaway prompt (`"Ans y/n, k?"` to claude-haiku-4-5) via the API, which consumes a tiny amount of quota and resets the 5-hour window to start fresh
+5. If the window is still expired after that prompt — retries on the next alarm tick
+6. After **30 failed retries** the toggle turns itself off automatically
+
+**Requirements:**
+- At least one claude.ai tab must be open in the same window context (regular or incognito)
+- If no tab is open, the background worker opens a temporary one, waits for it to load, then closes it after the API call
+
+The alarm period is 5 minutes, so there can be up to a 5-minute delay between window expiry and the first reset attempt.
+
+## Data independence
+
+The inline bar and the popup fetch usage data independently. Opening the popup does not update the bar, and the bar's 15-second fetches do not update the popup. The only state they share is the auto-refresh toggle (stored in `chrome.storage.sync`).
+
+## Incognito support
+
+Claude treats regular and incognito browser windows as separate sessions (different cookies, potentially different accounts). The extension tracks them independently using separate storage keys. The popup detects which window type it's open in and shows the correct data.
 
 ## Permissions
 
-- `storage` — Stores usage data and settings locally
-- `scripting` — Injects the inline usage bar into Claude.ai pages
-- `tabs` — Checks for open Claude tabs for auto-refresh
-- `alarms` — Schedules auto-refresh checks every 5 minutes
-- `https://claude.ai/*` — Access to Claude.ai API endpoints
+| Permission | Why it's needed |
+|---|---|
+| `storage` | Saves usage data and toggle state locally |
+| `scripting` | Injects the inline bar into claude.ai and executes API calls inside tabs |
+| `tabs` | Finds existing claude.ai tabs for auto-refresh and popup fetches |
+| `alarms` | Schedules the 5-minute auto-refresh check |
+| `https://claude.ai/*` | Accesses Claude's usage API endpoints |
 
 ## Privacy
 
-- ✅ No external servers contacted
-- ✅ No analytics or tracking
-- ✅ No credential theft (uses your existing session)
-- ✅ All data stays in your browser
-- ✅ Open source — you can audit every line of code
+- No external servers — all traffic is between your browser and claude.ai
+- No analytics or tracking
+- Uses your existing browser session (no credentials are stored or transmitted elsewhere)
+- Open source — every line is auditable
 
-## Development
+## File structure
 
-### File Structure
 ```
-claude-usage-monitor/
-├── manifest.json       # Extension metadata
-├── background.js       # Service worker (auto-refresh logic)
-├── popup.js           # Popup UI logic
-├── popup.html         # Popup HTML
-├── popup.css          # Popup styles
-├── content.js         # Inline bar injection
-├── icons/             # Extension icons (16x16, 32x32, 48x48, 128x128)
-└── README.md          # This file
+├── manifest.json    — extension manifest (MV3)
+├── background.js    — service worker: auto-refresh alarm, popup fetch handler
+├── content.js       — injected into claude.ai: inline bar, visibility-driven polling
+├── popup.html       — popup markup
+├── popup.js         — popup logic and rendering
+├── popup.css        — popup styles
+└── icons/           — 16, 32, 48, 128px PNGs
 ```
-
-### Building
-The extension is ready to use as-is. No build step required.
-
-### Testing
-1. Load unpacked (see Installation above)
-2. Make changes to any file
-3. Click the reload button on the extension card in `chrome://extensions/`
-4. Test in your Claude.ai session
 
 ## Troubleshooting
 
-**Extension icon doesn't show usage:**
-- Ensure you're on https://claude.ai (not claude.com)
-- Check that you're signed in
-- Click "Refetch Usage" in the popup
+**Bar doesn't appear:**
+- Make sure you're on https://claude.ai (not claude.com)
+- Make sure you're signed in
+- Reload the extension from `chrome://extensions/`
 
-**Auto-refresh not working:**
-- Enable the toggle in the popup
-- Keep at least one Claude tab open
-- Check that you're logged in (not 403 error)
+**Usage shows "—" or never updates:**
+- Click "Refetch Usage" in the popup once to seed the data
+- If that fails, check you're signed into claude.ai
 
-**Last fetched shows "Never":**
-- Click "Refetch Usage" once to fetch data
-- The timestamp will update and display
+**Auto-refresh turned itself off:**
+- It exhausted 30 retry attempts (2.5 hours of trying) without successfully resetting the window
+- Toggle it back on manually — it will start checking again on the next 5-minute alarm
 
-**Different usage in regular vs incognito:**
-- This is expected! Each context logs into a different account
-- Each tracks its own 5-hour window independently
+**Different numbers in the bar vs the popup:**
+- Expected — they fetch independently and at different times
 
-## Support
-
-Found a bug? Have a feature request?
-- Open an issue on GitHub
-- Include steps to reproduce and browser/OS version
+**Incognito usage not showing:**
+- Open the popup while the incognito window is focused
+- Make sure a claude.ai tab is open in that incognito window
 
 ## License
 
-MIT — Use freely, modify, distribute
+MIT — use freely, modify, distribute
 
-## Inspiration & Credit
+## Inspiration
 
-This extension was inspired by [claude-counter](https://github.com/she-llac/claude-counter), a similar tool for monitoring Claude usage. Thanks to the creator for the innovative idea!
-
-## Disclaimer
-
-This extension is not affiliated with Anthropic or Claude. It's a community tool that reads publicly available usage data.
+Inspired by [claude-counter](https://github.com/she-llac/claude-counter). Not affiliated with Anthropic.

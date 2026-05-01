@@ -90,6 +90,17 @@ chrome.runtime.onMessage.addListener((req, sender, reply) => {
     });
     return true;
   }
+
+  // Check whether the user is currently logged into claude.ai in the given context.
+  // Uses an existing Claude tab if available, otherwise opens a temporary one.
+  // Returns { loggedIn: bool }.
+  if (req.action === "checkSession") {
+    const incognito = !!req.incognito;
+    checkSession(incognito)
+      .then(result => reply(result))
+      .catch(() => reply({ loggedIn: false }));
+    return true;
+  }
 });
 
 // ── Storage helpers ────────────────────────────────────────────────────────
@@ -175,6 +186,34 @@ async function fetchUsageInTab(tabId) {
       return { ok: false, error: e.message };
     }
   });
+}
+
+// ── Session check ─────────────────────────────────────────────────────────
+// Hits /api/organizations in the correct browser context to determine if the
+// user is currently logged in. Uses an existing Claude tab; opens a temporary
+// one if none is available.
+async function checkSession(incognito) {
+  // Only check against an already-open Claude tab — never open a new one just
+  // to check login state, since that would block the popup for ~5 seconds.
+  // If no tab is open in this context, there is no active session to check.
+  const tab = await findClaudeTab(incognito);
+  if (!tab) return { loggedIn: false };
+
+  const result = await execInTab(tab.id, async () => {
+    try {
+      const res = await fetch("/api/organizations", {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      if (!res.ok) return { loggedIn: false };
+      const orgs = await res.json();
+      return { loggedIn: Array.isArray(orgs) && orgs.length > 0 };
+    } catch {
+      return { loggedIn: false };
+    }
+  });
+  return result || { loggedIn: false };
 }
 
 // ── Manual refetch for popup ───────────────────────────────────────────────

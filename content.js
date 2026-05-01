@@ -8,8 +8,8 @@
 
   const CONTEXT_LIMIT = 200_000;
   const STYLE_ID = 'cum-styles';
-  const USAGE_TTL = 2 * 60 * 1000;       // refresh usage every 2 min
-  const TOKEN_POLL_MS = 60 * 1000;        // poll tokens every 1 min
+  const USAGE_INTERVAL_MS = 2 * 60 * 1000; // fetch every 2min while tab is active
+  const TOKEN_POLL_MS = 60 * 1000;         // poll tokens every 1 min
 
   // ── CSS ──────────────────────────────────────────────────────────────────
   function injectStyles() {
@@ -417,37 +417,30 @@
   }
 
   // ── Last fetched display ──────────────────────────────────────────────────
-  async function updateLastFetched() {
+  // Tracks the timestamp of the most recent successful usage fetch in this page context.
+  let contentLastFetchedAt = 0;
+
+  function updateLastFetched() {
     if (!lastFetchedEl) return;
-    try {
-      const incognito = !!(await new Promise(resolve => {
-        chrome.runtime.sendMessage({ action: "getStatus", incognito: false }, (res) => {
-          resolve(false);
-        });
-      }));
-      const statusKey = incognito ? "last_keep_alive_incognito" : "last_keep_alive_regular";
-      const data = await chrome.storage.local.get(statusKey);
-      const status = data[statusKey] || {};
-      const timestamp = status.lastFetched;
-      if (!timestamp) {
-        lastFetchedEl.textContent = '';
-        return;
-      }
-      const now = Date.now();
-      const diff = Math.floor((now - timestamp) / 1000);
-      if (diff < 60) {
-        lastFetchedEl.textContent = '· Just now';
-      } else if (diff < 3600) {
-        const m = Math.floor(diff / 60);
-        lastFetchedEl.textContent = `· ${m}m ago`;
-      } else if (diff < 86400) {
-        const h = Math.floor(diff / 3600);
-        lastFetchedEl.textContent = `· ${h}h ago`;
-      } else {
-        const d = new Date(timestamp);
-        lastFetchedEl.textContent = `· ${d.toLocaleDateString()}`;
-      }
-    } catch {}
+    if (!contentLastFetchedAt) {
+      lastFetchedEl.textContent = '';
+      return;
+    }
+    const now = Date.now();
+    const diff = Math.floor((now - contentLastFetchedAt) / 1000);
+    if (diff < 60) {
+      const buckets = Math.floor(diff / 10) * 10 || 0;
+      lastFetchedEl.textContent = `· ${buckets}s ago`;
+    } else if (diff < 3600) {
+      const m = Math.floor(diff / 60);
+      lastFetchedEl.textContent = `· ${m}m ago`;
+    } else if (diff < 86400) {
+      const h = Math.floor(diff / 3600);
+      lastFetchedEl.textContent = `· ${h}h ago`;
+    } else {
+      const d = new Date(contentLastFetchedAt);
+      lastFetchedEl.textContent = `· ${d.toLocaleDateString()}`;
+    }
   }
 
   // ── Usage fetch ───────────────────────────────────────────────────────────
@@ -455,7 +448,7 @@
   let usageInFlight = false;
 
   async function loadUsage(force = false) {
-    if (!force && Date.now() - lastUsageFetchAt < USAGE_TTL) return;
+    if (!force && Date.now() - lastUsageFetchAt < USAGE_INTERVAL_MS) return;
     if (usageInFlight) return;
     usageInFlight = true;
     try {
@@ -468,6 +461,7 @@
       if (!res.ok) return;
       const data = await res.json();
       lastUsageFetchAt = Date.now();
+      contentLastFetchedAt = lastUsageFetchAt;
       setUsage(data);
       updateLastFetched();
     } catch { /* silent */ } finally {
@@ -539,7 +533,10 @@
       if (generationActive && sendBtn) {
         // Generation just finished
         generationActive = false;
-        setTimeout(fetchAndCountTokens, 1000);
+        setTimeout(() => {
+          fetchAndCountTokens();
+          loadUsage(true);
+        }, 1000);
       }
     });
 
@@ -588,7 +585,6 @@
       '[data-testid="model-selector-dropdown"], [data-testid="model-selector-input-button"]'
     );
     attachBar();
-    loadUsage(true);
     updateLastFetched();
     if (hasChatUI) {
       fetchAndCountTokens();
@@ -602,8 +598,31 @@
     tryInit();
   }
 
-  // Periodic usage refresh (every 2 min)
-  setInterval(() => loadUsage(true), USAGE_TTL);
+  // Usage polling: only runs while the tab is visible.
+  // Starts immediately on tab focus, stops when tab is hidden.
+  let usageIntervalId = null;
+
+  function startUsagePolling() {
+    if (usageIntervalId) return;
+    loadUsage(true);
+    usageIntervalId = setInterval(() => loadUsage(false), USAGE_INTERVAL_MS);
+  }
+
+  function stopUsagePolling() {
+    if (!usageIntervalId) return;
+    clearInterval(usageIntervalId);
+    usageIntervalId = null;
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      startUsagePolling();
+    } else {
+      stopUsagePolling();
+    }
+  });
+
+  if (document.visibilityState === 'visible') startUsagePolling();
 
   // Periodic token re-count (every 1 min)
   setInterval(fetchAndCountTokens, TOKEN_POLL_MS);
@@ -611,7 +630,7 @@
   // Countdown tick
   setInterval(tick, 1000);
 
-  // Update last fetched display (every 30 sec to keep it fresh, even when user isn't typing)
-  setInterval(updateLastFetched, 30 * 1000);
+  // Update last fetched display every second so the relative time stays accurate
+  setInterval(updateLastFetched, 1000);
 
 })();
