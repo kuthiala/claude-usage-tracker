@@ -75,7 +75,6 @@ function renderUsage(data) {
 let lastUsageData = null;
 let lastFetchedTime = null;
 let currentIncognito = null;
-let initialFetchDone = false;
 
 async function getCurrentWindowIncognito() {
   const currentWindow = await chrome.windows.getCurrent();
@@ -109,6 +108,7 @@ async function render(skipAutoFetch = false) {
   // has logged out since the last fetch and the popup would otherwise show
   // stale cached usage data.
   const hasClaudeTab = await claudeTabExists(currentIncognito);
+
   if (hasClaudeTab) {
     const loggedIn = await checkSession(currentIncognito);
     if (!loggedIn) {
@@ -120,13 +120,18 @@ async function render(skipAutoFetch = false) {
     }
   }
 
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   const statusKey = getStatusKeyForWindow(currentIncognito);
   const stored = await chrome.storage.local.get(statusKey);
   const status = stored[statusKey] || {};
 
-  // On first open, always fetch fresh data
-  if (!skipAutoFetch && !initialFetchDone) {
-    initialFetchDone = true;
+  // Serve cached data if it's less than 5 minutes old — don't open a tab
+  const cacheAge = status.lastFetched ? Date.now() - status.lastFetched : Infinity;
+  const cacheIsFresh = status.usage && cacheAge < CACHE_TTL;
+
+
+
+  if (!skipAutoFetch && !cacheIsFresh) {
     try {
       const result = await chrome.runtime.sendMessage({
         action: "fetchUsage",
@@ -134,9 +139,12 @@ async function render(skipAutoFetch = false) {
       });
       if (result && result.ok) {
         lastUsageData = result.data;
-        lastFetchedTime = Date.now();
+        // Only update lastFetchedTime if it was a real fetch, not from cache
+        if (!result.fromCache) {
+          lastFetchedTime = Date.now();
+          updateLastFetched(lastFetchedTime);
+        }
         content.innerHTML = renderUsage(result.data);
-        updateLastFetched(lastFetchedTime);
         return;
       }
       // fetchUsage failed — check if it was a login issue
@@ -216,8 +224,10 @@ function updateLastFetched(timestamp) {
   }
 }
 
-// Refetch button: open a tab in the same incognito context as the current window.
-document.getElementById("refresh").addEventListener("click", async (e) => {
+// Refetch button: always fetch fresh (force = true)
+const refreshBtn = document.getElementById("refresh");
+if (refreshBtn) {
+  refreshBtn.addEventListener("click", async (e) => {
   const btn = e.currentTarget;
   btn.disabled = true;
   const content = document.getElementById("content");
@@ -229,6 +239,7 @@ document.getElementById("refresh").addEventListener("click", async (e) => {
     const result = await chrome.runtime.sendMessage({
       action: "fetchUsage",
       incognito,
+      force: true,
     });
 
     if (!result || !result.ok) {
@@ -243,20 +254,27 @@ document.getElementById("refresh").addEventListener("click", async (e) => {
     } else {
       lastUsageData = result.data;
       content.innerHTML = renderUsage(result.data);
-      lastFetchedTime = Date.now();
-      updateLastFetched(lastFetchedTime);
+      // Only update lastFetchedTime if it was a real fetch, not from cache
+      if (!result.fromCache) {
+        lastFetchedTime = Date.now();
+        updateLastFetched(lastFetchedTime);
+      }
     }
   } catch (e) {
     content.innerHTML = errorHtml("Error", `<span class="detail">${e.message}</span>`);
   } finally {
     btn.disabled = false;
   }
-});
+  });
+}
 
 // Auto-refresh toggle — only saves the setting, never triggers a fetch.
-document.getElementById("ka-toggle").addEventListener("change", async (e) => {
-  await chrome.storage.sync.set({ [TOGGLE_KEY]: e.target.checked });
-});
+const kaToggle = document.getElementById("ka-toggle");
+if (kaToggle) {
+  kaToggle.addEventListener("change", async (e) => {
+    await chrome.storage.sync.set({ [TOGGLE_KEY]: e.target.checked });
+  });
+}
 
 // Handle internal links
 document.addEventListener("click", async (e) => {

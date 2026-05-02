@@ -56,7 +56,7 @@
         font-weight: 600;
         font-size: 11px;
         color: #1F1E1D;
-        min-width: 34px;
+        min-width: 31px;
         display: inline-block;
       }
       html[data-mode="dark"] .cum-pct { color: #e8e4dc; }
@@ -64,7 +64,7 @@
       .cum-pct.cum-high { color: #C25B4A; }
 
       .cum-track {
-        width: 52px;
+        width: 47px;
         height: 4px;
         background: #E8E2D2;
         border-radius: 3px;
@@ -95,6 +95,8 @@
         font-size: 10px;
         margin-left: 1px;
         white-space: nowrap;
+        min-width: 63px;
+        display: inline-block;
       }
 
       /* ctx used text has a stable min-width so the bar doesn't jump */
@@ -103,7 +105,7 @@
         font-size: 10px;
         margin-left: 1px;
         white-space: nowrap;
-        min-width: 80px;
+        min-width: 72px;
         display: inline-block;
       }
     `;
@@ -313,7 +315,15 @@
     ctxPctEl.className = `cum-pct ${fillClass(pct)}`.trim();
     ctxFillEl.style.width = `${pct}%`;
     ctxFillEl.className = `cum-fill ${fillClass(pct)}`.trim();
-    ctxUsedEl.textContent = `· ${totalTokens.toLocaleString()} used`;
+    // Format token count: use k notation for >= 1000 (1k, 1.1k, etc)
+    let tokenDisplay;
+    if (totalTokens >= 1000) {
+      const k = totalTokens / 1000;
+      tokenDisplay = k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`;
+    } else {
+      tokenDisplay = totalTokens.toLocaleString();
+    }
+    ctxUsedEl.textContent = `· ${tokenDisplay} used`;
     ctxGroupEl.style.display = '';
     div2El.style.display = '';
   }

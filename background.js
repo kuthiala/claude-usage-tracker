@@ -75,7 +75,8 @@ chrome.runtime.onMessage.addListener((req, sender, reply) => {
   // Manual refetch from popup — open a tab in the right context if needed
   if (req.action === "fetchUsage") {
     const incognito = !!req.incognito;
-    fetchUsageForPopup(incognito)
+    const force = !!req.force;
+    fetchUsageForPopup(incognito, force)
       .then(result => reply(result))
       .catch(e => reply({ ok: false, error: e.message }));
     return true;
@@ -217,8 +218,27 @@ async function checkSession(incognito) {
 }
 
 // ── Manual refetch for popup ───────────────────────────────────────────────
-// Opens a background tab in the correct incognito context if needed.
-async function fetchUsageForPopup(incognito) {
+// Checks cache first (5-min TTL) unless force=true. If cache is fresh, returns it without opening a tab.
+// Otherwise opens a background tab in the correct incognito context and fetches fresh data.
+// Returns { ok, data, fromCache } to distinguish cache hits from real fetches.
+async function fetchUsageForPopup(incognito, force = false) {
+  const { statusKey } = getKeysForContext(incognito);
+  const stored = (await chrome.storage.local.get(statusKey))[statusKey] || {};
+
+  // Check if we have cached data that's less than 5 minutes old (unless forced)
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  const now = Date.now();
+  const lastFetchedTime = stored.lastFetched || 0;
+  const age = now - lastFetchedTime;
+
+  if (!force && stored.usage && age < CACHE_TTL) {
+    return { ok: true, data: stored.usage, fromCache: true };
+  }
+
+  // Cache is stale — need to fetch fresh data
+  // Save the fetch attempt timestamp immediately so subsequent clicks within 5 min use cache
+  await setStatus("ok", incognito, { usage: stored.usage, lastFetched: now });
+
   let tab = await findClaudeTab(incognito);
   let createdTab = false;
 
@@ -238,9 +258,9 @@ async function fetchUsageForPopup(incognito) {
         : result?.error || `${result?.step}_${result?.status}`;
       return { ok: false, error: errDetail };
     }
-    // Persist usage so the popup can read it next time
+    // Persist fresh usage data
     await setStatus("ok", incognito, { usage: result.usage });
-    return { ok: true, data: result.usage };
+    return { ok: true, data: result.usage, fromCache: false };
   } finally {
     if (createdTab && tab?.id) {
       await new Promise(r => setTimeout(r, 200));
