@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.0.2
+
+**Popup caching for ChromeOS UX:**
+- Popup now caches usage data for 5 minutes — clicking within 5 min shows cached data instantly without opening tabs (solves ChromeOS popup-closing issue)
+- "Last fetched" timestamp only updates on real fetches, not when serving from cache
+- "Refetch Usage" button always forces a fresh fetch regardless of cache age
+
+**UI improvements:**
+- Reduced all inline bar field widths by 10% for a slimmer appearance
+- "Fetched" field now has fixed width to prevent layout shift
+- Context token display now uses k-notation for 1000+ tokens (1k, 1.1k, 5.2k, etc.)
+
+**Bug fixes:**
+- Fixed event listener null checks in popup (Refetch button now works reliably)
+
 ## v1.0.1
 
 **Inline bar fetch behavior:**
