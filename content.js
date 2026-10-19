@@ -558,9 +558,17 @@
     }
   }
 
-  // ── Send-button watcher ───────────────────────────────────────────────────
-  // Watches for generation completing by detecting the stop button being
-  // replaced by the send button (Claude's UI swaps them during streaming).
+  // ── Generation watcher ────────────────────────────────────────────────────
+  // Watches for generation completing. Assistant messages carry
+  // data-is-streaming="true" while a response streams; older UIs swapped the
+  // send button for a stop button instead.
+  const GENERATING_SELECTOR = [
+    '[data-is-streaming="true"]',
+    '[data-testid="stop-button"]',
+    'button[aria-label="Stop"]',
+    'button[aria-label="Stop response"]',
+  ].join(', ');
+
   let sendBtnObserver = null;
   let generationActive = false;
 
@@ -569,17 +577,11 @@
     generationActive = false;
 
     sendBtnObserver = new MutationObserver(() => {
-      // Stop button present → generation in progress
-      const stopBtn = document.querySelector('[data-testid="stop-button"]') ||
-                      document.querySelector('button[aria-label="Stop"]');
-      const sendBtn = document.querySelector('[data-testid="send-button"]') ||
-                      document.querySelector('button[aria-label="Send message"]');
-
-      if (stopBtn) {
+      if (document.querySelector(GENERATING_SELECTOR)) {
         generationActive = true;
         return;
       }
-      if (generationActive && sendBtn) {
+      if (generationActive) {
         // Generation just finished
         generationActive = false;
         setTimeout(() => {
@@ -589,7 +591,13 @@
       }
     });
 
-    sendBtnObserver.observe(document.body, { childList: true, subtree: true });
+    // data-is-streaming flips in place, so watch that attribute too
+    sendBtnObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-is-streaming'],
+    });
   }
 
   // ── Main orchestration ────────────────────────────────────────────────────
