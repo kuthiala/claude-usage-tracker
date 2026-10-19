@@ -355,9 +355,20 @@
     weeklyResetEl.textContent = rem ? `· ${rem}` : '';
   }
 
+  const RESET_REFETCH_MIN_GAP_MS = 30 * 1000;
+
   function tick() {
     updateSessionReset();
     updateWeeklyReset();
+
+    // A window just rolled over — refetch now rather than showing
+    // "resets now" until the next poll. Rate-limited in case the API lags.
+    const now = Date.now();
+    const rolledOver = [sessionResetMs, weeklyResetMs].some(ts => ts && ts <= now);
+    if (rolledOver && document.visibilityState === 'visible' &&
+        now - lastUsageFetchAt > RESET_REFETCH_MIN_GAP_MS) {
+      loadUsage(true);
+    }
   }
 
   // ── DOM attachment ────────────────────────────────────────────────────────
