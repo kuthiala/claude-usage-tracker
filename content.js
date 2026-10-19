@@ -20,19 +20,32 @@
       .cum-bar-wrapper {
         display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 5px 14px 6px;
+        gap: 4px 10px;
+        padding: 0 8px 6px;
         font-size: 11px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-        color: #6B6862;
-        flex-wrap: nowrap;
+        font-family: inherit;
+        color: var(--cds-text-secondary, #6B6862);
+        flex-wrap: wrap;
         box-sizing: border-box;
         width: 100%;
+        min-width: 0;
+        min-height: 20px;
+        container-type: inline-size;
+      }
+      /* Narrow composer: drop separators and the fetched time so groups wrap cleanly */
+      @container (max-width: 480px) {
+        .cum-divider, .cum-fetched { display: none !important; }
+      }
+      html[data-mode="dark"] .cum-bar-wrapper {
+        color: var(--cds-text-secondary, #9b9890);
+      }
+      /* Older Claude UI: bar sits directly under the toolbar row */
+      .cum-bar-wrapper.cum-legacy {
+        padding: 5px 14px 6px;
         border-top: 1px solid rgba(0,0,0,0.06);
         min-height: 26px;
       }
-      html[data-mode="dark"] .cum-bar-wrapper {
-        color: #9b9890;
+      html[data-mode="dark"] .cum-bar-wrapper.cum-legacy {
         border-top-color: rgba(255,255,255,0.07);
       }
 
@@ -55,11 +68,11 @@
       .cum-pct {
         font-weight: 600;
         font-size: 11px;
-        color: #1F1E1D;
+        color: var(--cds-text-primary, #1F1E1D);
         min-width: 31px;
         display: inline-block;
       }
-      html[data-mode="dark"] .cum-pct { color: #e8e4dc; }
+      html[data-mode="dark"] .cum-pct { color: var(--cds-text-primary, #e8e4dc); }
       .cum-pct.cum-warn { color: #C8943B; }
       .cum-pct.cum-high { color: #C25B4A; }
 
@@ -218,7 +231,7 @@
 
     // ── Last fetched ──
     const lastFetchedGroup = document.createElement('div');
-    lastFetchedGroup.className = 'cum-group';
+    lastFetchedGroup.className = 'cum-group cum-fetched';
     const lastFetchedLabel = document.createElement('span');
     lastFetchedLabel.className = 'cum-label';
     lastFetchedLabel.textContent = 'Fetched';
@@ -348,12 +361,24 @@
   }
 
   // ── DOM attachment ────────────────────────────────────────────────────────
-  function findToolbarRow() {
+  // Current UI: the model selector lives in the composer "chin" (the row with
+  // attach / mic / disclaimer / model). The bar goes after it as its own row,
+  // inside the ChatComposer column. Falls back to the legacy toolbar lookup.
+  function findBarAnchor() {
     const modelSelector =
       document.querySelector('[data-testid="model-selector-dropdown"]') ||
       document.querySelector('[data-testid="model-selector-input-button"]');
-    if (!modelSelector) return null;
 
+    const chin =
+      modelSelector?.closest('[data-cds="ChatComposerChin"]') ||
+      document.querySelector('[data-cds="ChatComposer"] [data-cds="ChatComposerChin"]');
+    if (chin) return { el: chin, legacy: false };
+
+    const row = modelSelector ? findLegacyToolbarRow(modelSelector) : null;
+    return row ? { el: row, legacy: true } : null;
+  }
+
+  function findLegacyToolbarRow(modelSelector) {
     let cur = modelSelector.parentElement;
     while (cur && cur !== document.body) {
       if (cur.nodeType === 1) {
@@ -367,19 +392,33 @@
     return modelSelector.parentElement?.parentElement || null;
   }
 
-  // The wrapper is created once and reused — we only move it if the toolbar
+  // The wrapper is created once and reused — we only move it if the anchor
   // has changed (different parent), never recreate it.
   function attachBar() {
     if (!wrapper) buildUI();
 
-    const toolbar = findToolbarRow();
-    if (!toolbar) return;
+    const anchor = findBarAnchor();
+    if (!anchor) return;
+
+    wrapper.classList.toggle('cum-legacy', anchor.legacy);
 
     // Already in the right place
-    if (wrapper.previousElementSibling === toolbar || toolbar.nextElementSibling === wrapper) return;
+    if (anchor.el.nextElementSibling === wrapper) return;
 
-    // Insert (or re-insert) immediately after the toolbar
-    toolbar.insertAdjacentElement('afterend', wrapper);
+    // Insert (or re-insert) immediately after the anchor
+    anchor.el.insertAdjacentElement('afterend', wrapper);
+  }
+
+  // Coalesce re-attach attempts to one per frame — the DOM observer fires on
+  // every mutation, including each streamed token.
+  let attachScheduled = false;
+  function scheduleAttach() {
+    if (attachScheduled) return;
+    attachScheduled = true;
+    requestAnimationFrame(() => {
+      attachScheduled = false;
+      attachBar();
+    });
   }
 
   // ── waitForElement helper ─────────────────────────────────────────────────
@@ -573,9 +612,9 @@
       onUrlChange();
       return;
     }
-    // Re-attach if wrapper was removed by React reconciliation
-    if (wrapper && !document.contains(wrapper)) {
-      attachBar();
+    // Attach once the composer renders, or re-attach if React removed the bar
+    if (!wrapper || !wrapper.isConnected) {
+      scheduleAttach();
     }
   });
   domObserver.observe(document.body, { childList: true, subtree: true });
