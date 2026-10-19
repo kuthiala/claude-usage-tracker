@@ -6,7 +6,7 @@ A Chrome extension that monitors your Claude.ai usage in real-time. It injects a
 
 ## Features
 
-- **Inline chat bar** — usage stats visible directly below the chat input on claude.ai
+- **Inline chat bar** — usage stats visible directly below the chat input on claude.ai (under the row with the model selector)
 - **Popup dashboard** — click the extension icon for a fuller view with timestamps
 - **Context token counter** — tracks how much of the 200k context window the current conversation is using
 - **Auto-refresh** — automatically resets your 5-hour usage window when it expires (see below)
@@ -38,10 +38,11 @@ The bar is injected by `content.js` directly into the claude.ai page. It makes i
 
 **Fetch behavior:**
 - Fetches immediately when the page loads (if the tab is in the foreground)
-- Fetches every **15 seconds** while the tab is active and visible
+- Fetches every **2 minutes** while the tab is active and visible
+- Refetches as soon as a displayed reset time passes, so the bar doesn't sit on stale numbers after a window rolls over
 - Stops fetching entirely when you switch to another tab or minimize the browser
 - Resumes immediately (with a fresh fetch) when you come back to the tab
-- Force-fetches after every prompt response completes
+- Force-fetches after every prompt response completes (detected via the streaming state of the assistant message)
 
 The "Fetched" timestamp in the bar reflects when the bar itself last successfully fetched — not when the popup last fetched.
 
@@ -51,7 +52,7 @@ The popup is driven by `popup.js` and `background.js`. It does not share fetch r
 
 - **On open:** if a claude.ai tab exists, automatically fetches fresh usage via the background service worker
 - **Refetch Usage button:** manually triggers a fresh fetch
-- The background worker executes the API calls inside an existing Claude tab (or opens a temporary one if none is open), then saves the result to `chrome.storage.local`
+- The background worker executes the API calls inside an existing Claude tab (or opens a temporary one if none is open — see [Temporary tabs](#temporary-tabs)), then saves the result to `chrome.storage.local`
 - The "Last fetched" timestamp in the popup reflects when the popup or background worker last fetched, not the inline bar
 
 ## How auto-refresh works
@@ -64,17 +65,28 @@ The auto-refresh toggle is **not** about refreshing the usage display. It solves
 3. If the window has not expired — does nothing
 4. If the window has expired — sends a short throwaway prompt (`"Ans y/n, k?"` to claude-haiku-4-5) via the API, which consumes a tiny amount of quota and resets the 5-hour window to start fresh
 5. If the window is still expired after that prompt — retries on the next alarm tick
-6. After **15 failed retries** the toggle turns itself off automatically
+6. After **15 failed attempts** (about 30 minutes) the toggle turns itself off automatically. The attempt count is kept in session storage so it survives the service worker being suspended between ticks.
 
 **Requirements:**
-- At least one claude.ai tab must be open in the same window context (regular or incognito)
-- If no tab is open, the background worker opens a temporary one, waits for it to load, then closes it after the API call
+- A browser window of the same type (regular or incognito) must be open. The incognito check is skipped entirely when no incognito window exists.
+- An existing claude.ai tab in that context is used if available; otherwise a temporary tab is opened (see below).
+- If the last check found you signed out, no temporary tabs are opened until a claude.ai tab is open again (e.g. after you sign back in).
 
 The alarm period is 2 minutes, so there can be up to a 2-minute delay between window expiry and the first reset attempt.
 
+### Temporary tabs
+
+When the popup or auto-refresh needs claude.ai and no usable tab is open in the right context, the background worker opens **one** background tab:
+
+- Opened inactive in a window of the same type — never an incognito request in a regular window or vice versa
+- Waits for the page to finish loading (up to 20s) before making API calls
+- Closed as soon as the call finishes; any tab left behind by the service worker being killed is closed on its next wake-up
+- Shared: concurrent requests (e.g. the popup opening during an auto-refresh check) queue on the same context instead of each opening a tab
+- Discarded/sleeping claude.ai tabs are skipped, since they can't run scripts
+
 ## Data independence
 
-The inline bar and the popup fetch usage data independently. Opening the popup does not update the bar, and the bar's 15-second fetches do not update the popup. The only state they share is the auto-refresh toggle (stored in `chrome.storage.sync`).
+The inline bar and the popup fetch usage data independently. Opening the popup does not update the bar, and the bar's fetches do not update the popup. The only state they share is the auto-refresh toggle (stored in `chrome.storage.sync`).
 
 ## Incognito support
 
@@ -121,8 +133,12 @@ Claude treats regular and incognito browser windows as separate sessions (differ
 - If that fails, check you're signed into claude.ai
 
 **Auto-refresh turned itself off:**
-- It exhausted 30 retry attempts (2.5 hours of trying) without successfully resetting the window
-- Toggle it back on manually — it will start checking again on the next 5-minute alarm
+- It exhausted 15 attempts (one per 2-minute check, about 30 minutes) without successfully resetting the window
+- Toggle it back on manually — it will start checking again on the next 2-minute alarm
+
+**A tab briefly opens and closes:**
+- Expected when auto-refresh or the popup needs claude.ai and no claude.ai tab is open — see [Temporary tabs](#temporary-tabs)
+- Keep a claude.ai tab open to avoid it
 
 **Different numbers in the bar vs the popup:**
 - Expected — they fetch independently and at different times

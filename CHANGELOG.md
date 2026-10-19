@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+**Auto-refresh no longer spams tabs:**
+- Incognito checks are skipped when no incognito window is open (previously opened a regular tab every 2 minutes)
+- Retry count persists across service worker restarts, so the 15-attempt limit actually applies
+- No temporary tabs are opened while signed out
+- At most one temporary tab per context; waits for it to load and always closes it, including tabs orphaned by a killed service worker
+- Discarded tabs are skipped; an inconclusive session check no longer shows "Not signed in"
+
+**Inline bar:**
+- Works with the new Claude composer layout — sits as its own row under the model-selector row instead of overlapping it
+- Uses Claude's theme colours and font; wraps cleanly on narrow layouts
+- Post-response refresh works again with the new UI (uses message streaming state)
+- Refetches as soon as a reset time passes
+
 ## v1.0.2
 
 **Popup caching for ChromeOS UX:**
