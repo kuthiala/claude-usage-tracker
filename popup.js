@@ -87,13 +87,14 @@ async function claudeTabExists(incognito) {
   return tabs.some(t => t.incognito === incognito);
 }
 
-// Render the popup content based on current storage state, without triggering fetches.
+// Returns false only when the session is known to be signed out; an
+// inconclusive check (tab still loading, network error) is not treated as logout.
 async function checkSession(incognito) {
   try {
     const result = await chrome.runtime.sendMessage({ action: "checkSession", incognito });
-    return !!(result && result.loggedIn);
+    return result?.loggedIn !== false;
   } catch {
-    return false;
+    return true;
   }
 }
 
